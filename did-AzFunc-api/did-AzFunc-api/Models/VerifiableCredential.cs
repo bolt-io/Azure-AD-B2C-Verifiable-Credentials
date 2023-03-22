@@ -192,6 +192,11 @@ public class Error
 
 public class CacheObject
 {
+    [JsonPropertyName("id")]
+    public string Id { get; set; }
+
+    [JsonPropertyName("url")]
+    public string Url { get; set; }
     
     [JsonPropertyName("status")]
     public string Status { get; set; }

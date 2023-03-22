@@ -87,6 +87,7 @@ public class Verifier
         try
         {
             string credType = req.Query["credType"];
+            string stateProperties = req.Query["StateProperties"];
 
 
             _log.LogInformation($"Starting new verification request for credential type {credType}");
@@ -98,7 +99,8 @@ public class Verifier
             }
             _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", t.AccessToken);
 
-            string state = Guid.NewGuid().ToString();
+            string state = stateProperties ?? Guid.NewGuid().ToString();
+            
 
             var jsonString = JsonSerializer.Serialize(CreatePresentationRequest(req, credType, state));
             try
@@ -118,13 +120,15 @@ public class Verifier
                 {
                     var cacheData = new CacheObject
                     {
+                        Id = state,
+                        Url = res.Url,
                         Status = "notscanned",
                         Message = "Request ready, please scan with Authenticator",
                         Expiry = res.Expiry.ToString()
                     };
-                    _cache.Set(res.RequestId, JsonSerializer.Serialize(cacheData));
+                    _cache.Set(state, JsonSerializer.Serialize(cacheData));
 
-                    return new OkObjectResult(res);
+                    return new OkObjectResult(cacheData);
                 }
                 else
                 {
@@ -164,6 +168,7 @@ public class Verifier
 
             Debug.WriteLine("callback!: " + presentation.RequestId);
             var requestId = presentation.RequestId;
+            var state = presentation.State;
 
             if (presentation.RequestStatus.Equals("request_retrieved", StringComparison.InvariantCultureIgnoreCase))
             {
@@ -172,7 +177,7 @@ public class Verifier
                     Status = "request_retrieved",
                     Message = "QR Code is scanned. Waiting for validation...",
                 };
-                _cache.Set(requestId, JsonSerializer.Serialize(cacheData));
+                _cache.Set(state, JsonSerializer.Serialize(cacheData));
                 _log.LogInformation("QR Code is scanned. Waiting for validation...");
             }
 
@@ -190,7 +195,7 @@ public class Verifier
                     LastName = presentation.VerifiedCredentialsData.First().Claims.LastName,
                     TenantObjectId = presentation.VerifiedCredentialsData.First().Claims.TenantObjectId,
                 };
-                _cache.Set(requestId, JsonSerializer.Serialize(cacheData));
+                _cache.Set(state, JsonSerializer.Serialize(cacheData));
                 _log.LogInformation("presentation verified and cached");
             }
 
