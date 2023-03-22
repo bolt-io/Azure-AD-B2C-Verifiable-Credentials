@@ -45,37 +45,40 @@ namespace did_AzFunc_api.Functions
             var randomNumber = RandomNumberGenerator.GetInt32(1, pinMaxValue);
             return string.Format("{0:D" + length.ToString() + "}", randomNumber);
         }
-        private VcRequest GenerateVcRequest(HttpRequest req, string reqId, string credType, string firstName, string lastName)
+        private IssuanceRequest GenerateVcRequest(HttpRequest req, string reqId, string credType, string firstName, string lastName)
         {
-            var request = new VcRequest()
+
+            var credentialGuid = _appSettings.CredentialMaps[credType];
+            _log.LogInformation($"Credential GUID: {credentialGuid}");
+
+            var request = new IssuanceRequest()
             {
                 Id = reqId,
+                IncludeQRCode = true,
                 Callback = new Callback()
                 {
                     Url = _appSettings.IssuerCallbackUrl(req),
                     State = reqId,
                 },
                 Authority = _appSettings.IssuerAuthority,
-                IncludeQRCode = true,
                 Registration = new Registration()
                 {
                     ClientName = _appSettings.ClientName
                 },
-                Issuance = new Issuance()
+
+                Type = credType,
+                Manifest = $"{_appSettings.ApiCredentialManifest}{credentialGuid}/manifest",
+                Pin = IsMobile(req) ? null : new Pin()
                 {
-                    Type = credType,
-                    Manifest = $"{_appSettings.ApiCredentialManifest}{credType}",
-                    Pin = IsMobile(req) ? null : new Pin()
-                    {
-                        Value = GetRandomPIN(4),
-                        Length = 4
-                    },
-                    Claims = new Claims()
-                    {
-                        FamilyName = lastName,
-                        GivenName = firstName
-                    }
+                    Value = GetRandomPIN(4),
+                    Length = 4
+                },
+                Claims = new Claims()
+                {
+                    FamilyName = lastName,
+                    GivenName = firstName
                 }
+
             };
             return request;
         }
@@ -116,10 +119,11 @@ namespace did_AzFunc_api.Functions
                     //var serviceRequest = await _httpClient.PostAsJsonAsync<VcRequest>("verifiablecredentials/request", request);
                     var a = new StringContent(reqPayload, System.Text.Encoding.UTF8, "application/json");
 
-                    var serviceRequest = await _httpClient.PostAsync(_appSettings.ApiEndpoint, a);
+                    var serviceRequest = await _httpClient.PostAsync(_appSettings.ApiEndpoint + "verifiableCredentials/createIssuanceRequest", a);
 
                     //var response = await serviceRequest.Content.ReadAsStringAsync();
                     var response = await serviceRequest.Content.ReadAsStringAsync();
+                    _httpClient.Dispose();
                     var res = System.Text.Json.JsonSerializer.Deserialize<VcResponse>(response);
 
                     statusCode = serviceRequest.StatusCode;
@@ -138,7 +142,7 @@ namespace did_AzFunc_api.Functions
                         };
                         _cache.Set(requestId, JsonSerializer.Serialize(cacheData));
 
-                        res.Pin = IsMobile(req) ? null : request.Issuance.Pin.Value;
+                        res.Pin = IsMobile(req) ? null : request.Pin.Value;
                         return new OkObjectResult(res);
                     }
                     else

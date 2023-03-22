@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Identity.Web;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Security.Cryptography.X509Certificates;
 
@@ -15,6 +16,8 @@ public class AppSettingsModel
     public string VCServiceScope { get; set; }
 
     public string CredentialManifest { get; set; }
+    
+    public Dictionary<string, string> CredentialMaps { get; set; }
 
     public string IssuerAuthority { get; set; }
 

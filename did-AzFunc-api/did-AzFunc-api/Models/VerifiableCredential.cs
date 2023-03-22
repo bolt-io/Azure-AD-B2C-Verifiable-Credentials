@@ -17,7 +17,6 @@ public class VcResponse
     [JsonPropertyName("qrCode")]
     public string QrCode { get; set; }
 
-
     public string Pin { get; set; }
 }
 
@@ -79,8 +78,11 @@ public class Issuance
     public Claims Claims { get; set; }
 }
 
-public class VcRequest
+public class IssuanceRequest
 {
+    public string Id { get; set; }
+
+
     [JsonPropertyName("includeQRCode")]
     public bool IncludeQRCode { get; set; }
 
@@ -93,16 +95,26 @@ public class VcRequest
     [JsonPropertyName("registration")]
     public Registration Registration { get; set; }
 
-    [JsonPropertyName("issuance")]
-    public Issuance Issuance { get; set; }
+    [JsonPropertyName("type")]
+    public string Type { get; set; }
 
-    public string Id { get; set; }
+    [JsonPropertyName("manifest")]
+    public string Manifest { get; set; }
+
+    [JsonPropertyName("claims")]
+    public Claims Claims { get; set; }
+
+    [JsonPropertyName("pin")]
+    public Pin Pin { get; set; }
 }
 
 public class PresentationRequest
 {
     [JsonPropertyName("includeQRCode")]
     public bool IncludeQRCode { get; set; }
+    
+    [JsonPropertyName("includeReceipt")]
+    public bool IncludeReceipt { get; set; }
 
     [JsonPropertyName("callback")]
     public Callback Callback { get; set; }
@@ -113,9 +125,9 @@ public class PresentationRequest
     [JsonPropertyName("registration")]
     public Registration Registration { get; set; }
 
-    [JsonPropertyName("presentation")]
-    public Presentation Presentation { get; set; }
 
+    [JsonPropertyName("requestedCredentials")]
+    public List<RequestedCredential> RequestedCredentials { get; set; }
 }
 
 public class RequestedCredential
@@ -127,6 +139,9 @@ public class RequestedCredential
 
     [JsonPropertyName("acceptedIssuers")]
     public List<string> AcceptedIssuers { get; set; }
+
+    [JsonPropertyName("configuration")]
+    public RequestedCredentialConfiguration Configuration { get; set; } = new();
 }
 
 public class Presentation
@@ -136,6 +151,19 @@ public class Presentation
 
     [JsonPropertyName("requestedCredentials")]
     public List<RequestedCredential> RequestedCredentials { get; set; }
+}
+
+public class RequestedCredentialConfiguration
+{
+    public RequestedCredentialValidation Validation { get; set; } = new();
+}
+
+public class RequestedCredentialValidation
+{
+    [JsonPropertyName("allowRevoked")]
+    public bool AllowRevoked { get; set; } = false;
+    [JsonPropertyName("validateLinkedDomain")]
+    public bool ValidateLinkedDomain { get; set; } = true;
 }
 
 public class IssuanceCallback
@@ -164,6 +192,7 @@ public class Error
 
 public class CacheObject
 {
+    
     [JsonPropertyName("status")]
     public string Status { get; set; }
 
@@ -176,9 +205,15 @@ public class CacheObject
     [JsonPropertyName("expiry")]
     public string Expiry { get; set; }
 
-    [JsonPropertyName("subjet")]
+    [JsonPropertyName("subject")]
     public string Subject { get; set; }
 
-    [JsonPropertyName("name")]
-    public string Name { get; set; }
+    [JsonPropertyName("fullName")]
+    public string FullName { get; set; }
+    [JsonPropertyName("firstName")]
+    public string FirstName { get; set; }
+    [JsonPropertyName("lastName")]
+    public string LastName { get; set; }
+    [JsonPropertyName("tenantObjectId")]
+    public object TenantObjectId { get; set; }
 }

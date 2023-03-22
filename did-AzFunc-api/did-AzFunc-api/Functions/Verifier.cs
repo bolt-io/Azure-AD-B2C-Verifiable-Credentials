@@ -46,14 +46,15 @@ public class Verifier
     }
 
 
-    private PresentationRequest CreatePresentationRequest(HttpRequest req, string credType, string requestId)
+    private PresentationRequest CreatePresentationRequest(HttpRequest req, string credType, string state)
     {
         return new PresentationRequest
         {
-            IncludeQRCode = true,
+            IncludeQRCode = false,
+            IncludeReceipt = true,
             Callback = new Callback
             {
-                State = requestId,
+                State = state,
                 Url = _appSettings.PresentationCallbackUrl(req)
             },
             Authority = _appSettings.VerifierAuthority,
@@ -61,24 +62,27 @@ public class Verifier
             {
                 ClientName = _appSettings.ClientName
             },
-            Presentation = new Presentation
-            {
-                IncludeReceipt = true,
-                RequestedCredentials = new List<RequestedCredential>()
+            RequestedCredentials = new List<RequestedCredential>()
                     {
                         new RequestedCredential
                         {
                             Type = credType,
                             Purpose = "Verifying issued credential",
                             AcceptedIssuers = new List<string>() { _appSettings.IssuerAuthority },
+                            Configuration = new(){
+                                Validation = new(){
+                                    AllowRevoked = false,
+                                    ValidateLinkedDomain = true
+                            }
                         }
                     }
             }
+
         };
     }
 
     [FunctionName("presentation-request")]
-    public async Task<ActionResult> PresentationRequest([HttpTrigger(AuthorizationLevel.Anonymous,"get",Route = "/api/verifier/presentation-request")] HttpRequest req)
+    public async Task<ActionResult> PresentationRequest([HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "/api/verifier/presentation-request")] HttpRequest req)
     {
         try
         {
@@ -94,13 +98,17 @@ public class Verifier
             }
             _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", t.AccessToken);
 
-            string requestId = Guid.NewGuid().ToString();
-            var jsonString = JsonSerializer.Serialize(CreatePresentationRequest(req, credType, requestId));
+            string state = Guid.NewGuid().ToString();
+
+            var jsonString = JsonSerializer.Serialize(CreatePresentationRequest(req, credType, state));
             try
             {
+                var presentationRequestEndpoint = _appSettings.ApiEndpoint + "verifiableCredentials/createPresentationRequest";
+                _log.LogInformation($"presentation-request: Sending {jsonString} to VC service {presentationRequestEndpoint}");
                 var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
-                var serviceRequest = await _httpClient.PostAsync(_appSettings.ApiEndpoint, content);
+                var serviceRequest = await _httpClient.PostAsync(presentationRequestEndpoint, content);
                 var response = await serviceRequest.Content.ReadAsStringAsync();
+                _httpClient.Dispose();
                 var res = System.Text.Json.JsonSerializer.Deserialize<VcResponse>(response);
 
                 _log.LogTrace("succesfully called Request API");
@@ -114,29 +122,32 @@ public class Verifier
                         Message = "Request ready, please scan with Authenticator",
                         Expiry = res.Expiry.ToString()
                     };
-                    _cache.Set(requestId, JsonSerializer.Serialize(cacheData));
+                    _cache.Set(res.RequestId, JsonSerializer.Serialize(cacheData));
 
                     return new OkObjectResult(res);
                 }
                 else
                 {
-                    _log.LogError("Unsuccesfully called Request API");
+                    _log.LogError("Unsuccesfully called Request API: {response}", response);
                     return new BadRequestObjectResult(new { error = "400", error_description = "Something went wrong calling the API: " + response });
                 }
             }
             catch (Exception ex)
             {
+                _log.LogError("Unsuccesfully called Request API", ex);
+
                 return new BadRequestObjectResult(new { error = "400", error_description = "Something went wrong calling the API: " + ex.Message });
             }
         }
         catch (Exception ex)
         {
+            _log.LogError("Unsuccesfully called Request API", ex);
             return new BadRequestObjectResult(new { error = "400", error_description = ex.Message });
         }
     }
 
     [FunctionName("presentation-callback")]
-    public async Task<ActionResult> PresentationCallback([HttpTrigger(AuthorizationLevel.Anonymous,"post",Route ="api/verifier/presentation-callback")]HttpRequest req)
+    public async Task<ActionResult> PresentationCallback([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "api/verifier/presentation-callback")] HttpRequest req)
     {
         try
         {
@@ -154,7 +165,7 @@ public class Verifier
             Debug.WriteLine("callback!: " + presentation.RequestId);
             var requestId = presentation.RequestId;
 
-            if (presentation.Code.Equals("request_retrieved", StringComparison.InvariantCultureIgnoreCase))
+            if (presentation.RequestStatus.Equals("request_retrieved", StringComparison.InvariantCultureIgnoreCase))
             {
                 var cacheData = new CacheObject
                 {
@@ -162,31 +173,38 @@ public class Verifier
                     Message = "QR Code is scanned. Waiting for validation...",
                 };
                 _cache.Set(requestId, JsonSerializer.Serialize(cacheData));
+                _log.LogInformation("QR Code is scanned. Waiting for validation...");
             }
 
-            if (presentation.Code.Equals("presentation_verified", StringComparison.CurrentCultureIgnoreCase))
+            if (presentation.RequestStatus.Equals("presentation_verified", StringComparison.CurrentCultureIgnoreCase))
             {
+                _log.LogInformation("Presentation verified");
                 var cacheData = new CacheObject
                 {
                     Status = "presentation_verified",
                     Message = "Presentation verified",
-                    Payload = string.Join(",", presentation.Issuers.First().Type),
+                    Payload = JsonSerializer.Serialize(presentation.VerifiedCredentialsData),
                     Subject = presentation.Subject,
-                    Name = $"{presentation.Issuers.First().Claims.FirstName} {presentation.Issuers.First().Claims.LastName}"
+                    FullName = $"{presentation.VerifiedCredentialsData.First().Claims.FirstName} {presentation.VerifiedCredentialsData.First().Claims.LastName}",
+                    FirstName = presentation.VerifiedCredentialsData.First().Claims.FirstName,
+                    LastName = presentation.VerifiedCredentialsData.First().Claims.LastName,
+                    TenantObjectId = presentation.VerifiedCredentialsData.First().Claims.TenantObjectId,
                 };
                 _cache.Set(requestId, JsonSerializer.Serialize(cacheData));
+                _log.LogInformation("presentation verified and cached");
             }
 
             return new OkResult();
         }
         catch (Exception ex)
         {
+            _log.LogError("Unsuccesfully called Request API", ex);
             return new BadRequestObjectResult(new { error = "400", error_description = ex.Message });
         }
     }
 
     [FunctionName("presentation-response")]
-    public ActionResult PresentationResponse([HttpTrigger(AuthorizationLevel.Anonymous,"get", Route = "/api/verifier/presentation-response")] HttpRequest req)
+    public ActionResult PresentationResponse([HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "/api/verifier/presentation-response")] HttpRequest req)
     {
         try
         {
@@ -210,6 +228,7 @@ public class Verifier
         }
         catch (Exception ex)
         {
+            _log.LogError("Unsuccesfully called reponse API", ex);
             return new BadRequestObjectResult(new { error = "400", error_description = ex.Message });
         }
     }
